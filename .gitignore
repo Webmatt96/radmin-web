@@ -1,0 +1,27 @@
+# Sensitive config - never commit
+radmin.conf
+
+# TLS keys
+*.key
+*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+# Django
+*.log
+db.sqlite3
+staticfiles/
+
+# Environments
+.env
+.venv
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp

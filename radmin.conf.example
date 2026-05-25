@@ -1,0 +1,39 @@
+[server]
+host = 192.168.122.42
+port = 443
+log_level = DEBUG
+cert_file = server.crt
+key_file = server.key
+
+[client]
+log_level = DEBUG
+connectivity_check_interval = 60
+
+[credentials]
+account = xadmin
+password = CHANGEME
+shared_secret = CHANGEME_GENERATE_WITH_SECRETS_MODULE
+
+[django]
+# Generate with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+secret_key = CHANGEME_GENERATE_WITH_DJANGO
+allowed_hosts = localhost,127.0.0.1
+debug = False
+
+[infrastructure]
+redis_url = redis://localhost:6379/0
+postgres_host = localhost
+postgres_port = 5432
+postgres_db = radmin
+postgres_user = radmin
+postgres_password = CHANGEME
+
+[pki]
+# Path to DoD PKI CA bundle (PEM format)
+# Download from: https://public.cyber.mil/pki-pke/
+ca_bundle_path = /etc/ssl/dod/dod-ca-bundle.pem
+
+[commands]
+application_log = Get-EventLog -LogName Application -Newest 10
+installroot_log = Get-EventLog -LogName "DoD-PKE InstallRoot" -Newest 10
+failover_cluster_validation = Test-Cluster
