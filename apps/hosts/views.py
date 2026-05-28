@@ -69,6 +69,19 @@ def host_detail(request, host_id):
             categories[cat] = []
         categories[cat].append(cmd)
 
+    # Auto-expire sessions older than 8 hours
+    SESSION_MAX_AGE_HOURS = 8
+    cutoff = timezone.now() - timezone.timedelta(hours=SESSION_MAX_AGE_HOURS)
+    Session.objects.filter(
+        user=request.user,
+        host=host,
+        ended_at=None,
+        started_at__lt=cutoff
+    ).update(
+        ended_at=timezone.now(),
+        termination_reason='timeout'
+    )
+
     session, created = Session.objects.get_or_create(
         user=request.user,
         host=host,
@@ -82,6 +95,7 @@ def host_detail(request, host_id):
         'host':        host,
         'categories':  categories,
         'session':     session,
+        'session_created': created,
         'recent_logs': recent_logs,
         'redis_available': REDIS_AVAILABLE,
     }
@@ -213,13 +227,48 @@ def close_session(request, session_id):
 
 
 @login_required
+def session_worklog(request, session_id):
+    """Generate a formatted work log for a session."""
+    session = get_object_or_404(Session, pk=session_id, user=request.user)
+    worklog = session.generate_work_log()
+    return JsonResponse({'worklog': worklog})
+
+
+@login_required
 @require_POST
 def save_ticket_ref(request, session_id):
+    """Update the ticket reference for a session."""
     session = get_object_or_404(Session, pk=session_id, user=request.user)
     data = json.loads(request.body)
     session.ticket_ref = data.get('ticket_ref', '')
     session.save(update_fields=['ticket_ref'])
     return JsonResponse({'status': 'saved'})
+
+
+@login_required
+def host_session_history(request, host_id):
+    """
+    Show all past sessions for a host.
+    Allows technicians to review and retrieve work logs from previous sessions.
+    """
+    host = get_object_or_404(ManagedHost, pk=host_id)
+    sessions = Session.objects.filter(
+        host=host
+    ).order_by('-started_at').select_related('user')[:50]
+
+    context = {
+        'host':     host,
+        'sessions': sessions,
+    }
+    return render(request, 'hosts/session_history.html', context)
+
+
+@login_required
+def past_session_worklog(request, session_id):
+    """Return work log for any session — not just the current user's."""
+    session = get_object_or_404(Session, pk=session_id)
+    worklog = session.generate_work_log()
+    return JsonResponse({'worklog': worklog})
 
 
 # ── Host status update (called by Redis status listener) ─────────────────────

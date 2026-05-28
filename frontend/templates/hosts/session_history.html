@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+
+{% block title %}Session History — {{ host.hostname }} — RAdmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .session-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .session-table th {
+        text-align: left;
+        padding: 10px 14px;
+        border-bottom: 2px solid var(--border);
+        color: var(--text-dim);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+    }
+
+    .session-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+    }
+
+    .session-table tr:hover td {
+        background: var(--surface2);
+    }
+
+    .session-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .cmd-count {
+        display: inline-block;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 2px 10px;
+        font-size: 11px;
+        color: var(--text-dim);
+    }
+
+    .ticket-ref {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--accent);
+    }
+
+    .duration {
+        color: var(--text-dim);
+        font-size: 12px;
+    }
+
+    /* Work log modal */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 200;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 24px;
+        width: 700px;
+        max-width: 95vw;
+    }
+
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .modal-subtitle { color: var(--text-dim); font-size: 12px; margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{% url 'hosts:host_detail' host.id %}"
+           style="color: var(--text-dim); text-decoration: none; font-size: 13px;">
+            ← {{ host.hostname }}
+        </a>
+        <div class="page-title" style="margin-top: 6px;">Session History</div>
+        <div class="page-subtitle">Past work sessions on {{ host.hostname }}</div>
+    </div>
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden;">
+    {% if sessions %}
+    <table class="session-table">
+        <thead>
+            <tr>
+                <th>Started</th>
+                <th>Ended</th>
+                <th>Duration</th>
+                <th>Technician</th>
+                <th>Ticket</th>
+                <th>Commands</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for session in sessions %}
+            <tr>
+                <td>{{ session.started_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    {% if session.ended_at %}
+                        {{ session.ended_at|date:"H:i" }}
+                    {% else %}
+                        <span style="color: var(--accent2);">Active</span>
+                    {% endif %}
+                </td>
+                <td class="duration">
+                    {% if session.ended_at %}
+                        {{ session.duration }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ session.user.display_name|default:session.user.edipi }}</td>
+                <td>
+                    {% if session.ticket_ref %}
+                        <span class="ticket-ref">{{ session.ticket_ref }}</span>
+                    {% else %}
+                        <span style="color: var(--text-dim);">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="cmd-count">{{ session.command_logs.count }} commands</span>
+                </td>
+                <td>
+                    {% if session.command_logs.count %}
+                    <button class="btn btn-ghost"
+                            style="font-size: 12px;"
+                            onclick="showWorkLog('{{ session.id }}',
+                                     '{{ session.started_at|date:"Y-m-d H:i" }}',
+                                     '{{ session.ticket_ref|default:"No ticket" }}')">
+                        Work Log
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="padding: 60px 20px; text-align: center; color: var(--text-dim);">
+        <div style="font-size: 48px;">📋</div>
+        <div style="font-size: 16px; font-weight: 600; margin-top: 16px;">No sessions yet</div>
+        <p style="margin-top: 8px; font-size: 13px;">Sessions will appear here after technicians connect to this host.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Work log modal -->
+<div class="modal-overlay" id="worklogModal">
+    <div class="modal">
+        <div class="modal-title">Work Log</div>
+        <div class="modal-subtitle" id="worklogSubtitle"></div>
+        <pre id="worklogContent" style="
+            background: #0a0c14;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 14px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: #b8bcd8;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        ">Loading...</pre>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+            <button class="btn btn-ghost" onclick="copyLog()">Copy</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+
+function showWorkLog(sessionId, startedAt, ticketRef) {
+    document.getElementById('worklogSubtitle').textContent =
+        `${startedAt} · Ticket: ${ticketRef}`;
+    document.getElementById('worklogContent').textContent = 'Loading...';
+    document.getElementById('worklogModal').classList.add('active');
+
+    fetch(`/hosts/session/${sessionId}/worklog/past/`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('worklogContent').textContent = data.worklog;
+    });
+}
+
+function closeModal() {
+    document.getElementById('worklogModal').classList.remove('active');
+}
+
+function copyLog() {
+    const content = document.getElementById('worklogContent').textContent;
+    navigator.clipboard.writeText(content)
+        .then(() => {
+            const btn = event.target;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 1500);
+        });
+}
+</script>
+{% endblock %}
