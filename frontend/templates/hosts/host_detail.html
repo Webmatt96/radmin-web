@@ -339,8 +339,14 @@
             <input type="text"
                    id="ticketRef"
                    class="ticket-input"
-                   placeholder="Enter ticket number (optional)"
+                   list="recentTickets"
+                   placeholder="Enter or select ticket number"
                    value="{{ session.ticket_ref }}">
+            <datalist id="recentTickets">
+                {% for ticket in recent_tickets %}
+                <option value="{{ ticket }}">
+                {% endfor %}
+            </datalist>
             <button class="btn btn-ghost" onclick="saveTicketRef()">Save</button>
         </div>
 

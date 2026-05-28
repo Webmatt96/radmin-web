@@ -91,12 +91,23 @@ def host_detail(request, host_id):
 
     recent_logs = session.command_logs.order_by('-executed_at')[:20]
 
+    # Recent unique ticket numbers used on this host for the dropdown
+    recent_tickets = (
+        Session.objects.filter(host=host)
+        .exclude(ticket_ref='')
+        .exclude(ticket_ref=None)
+        .values_list('ticket_ref', flat=True)
+        .distinct()
+        .order_by('-started_at')[:20]
+    )
+
     context = {
-        'host':        host,
-        'categories':  categories,
-        'session':     session,
+        'host':            host,
+        'categories':      categories,
+        'session':         session,
         'session_created': created,
-        'recent_logs': recent_logs,
+        'recent_logs':     recent_logs,
+        'recent_tickets':  recent_tickets,
         'redis_available': REDIS_AVAILABLE,
     }
     return render(request, 'hosts/host_detail.html', context)
