@@ -5,30 +5,43 @@ Dashboard and host detail views.
 
 import json
 import logging
+import time
+import uuid
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
+from django.conf import settings
 from .models import ManagedHost
 from apps.commands.models import CommandDefinition
 from apps.sessions.models import Session, CommandLog
 
 logger = logging.getLogger(__name__)
 
+# ── Redis ─────────────────────────────────────────────────────────────────────
+try:
+    import redis as redis_lib
+    _redis = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+    _redis.ping()
+    REDIS_AVAILABLE = True
+    logger.info("Redis connected for command dispatch")
+except Exception as e:
+    REDIS_AVAILABLE = False
+    _redis = None
+    logger.warning(f"Redis not available: {e}")
+
+COMMAND_TIMEOUT = 60  # seconds to wait for a result
+
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @login_required
 def dashboard(request):
-    """
-    Main dashboard — shows all managed hosts with online/offline status.
-    """
     hosts = ManagedHost.objects.all().order_by('environment', 'hostname')
-
-    # Counts for the summary bar
     total   = hosts.count()
     online  = hosts.filter(is_online=True).count()
     offline = total - online
-
     context = {
         'hosts':   hosts,
         'total':   total,
@@ -38,23 +51,17 @@ def dashboard(request):
     return render(request, 'hosts/dashboard.html', context)
 
 
+# ── Host detail ───────────────────────────────────────────────────────────────
+
 @login_required
 def host_detail(request, host_id):
-    """
-    Host detail page — command selector and output panel.
-    Opens a work session when the page loads.
-    """
     host = get_object_or_404(ManagedHost, pk=host_id)
 
-    # Get commands available for this host filtered by user's role
     host_commands = host.available_commands
     allowed = request.user.allowed_commands
-
     if allowed:
-        # Role has a command whitelist — filter to only allowed commands
         host_commands = host_commands.filter(command_name__in=allowed)
 
-    # Group commands by category for the UI
     categories = {}
     for cmd in host_commands:
         cat = cmd.get_category_display()
@@ -62,7 +69,6 @@ def host_detail(request, host_id):
             categories[cat] = []
         categories[cat].append(cmd)
 
-    # Open or resume a session for this user/host
     session, created = Session.objects.get_or_create(
         user=request.user,
         host=host,
@@ -70,7 +76,6 @@ def host_detail(request, host_id):
         defaults={'started_at': timezone.now()}
     )
 
-    # Recent command logs for this session
     recent_logs = session.command_logs.order_by('-executed_at')[:20]
 
     context = {
@@ -78,16 +83,103 @@ def host_detail(request, host_id):
         'categories':  categories,
         'session':     session,
         'recent_logs': recent_logs,
+        'redis_available': REDIS_AVAILABLE,
     }
     return render(request, 'hosts/host_detail.html', context)
 
 
+# ── Command dispatch ──────────────────────────────────────────────────────────
+
+@login_required
+@require_POST
+def dispatch_command(request, host_id):
+    """
+    Receive a command from the web UI.
+    If Redis is available, publish to the socket service and wait for result.
+    Otherwise log a placeholder.
+    """
+    host = get_object_or_404(ManagedHost, pk=host_id)
+    data = json.loads(request.body)
+
+    command    = data.get('command', '').strip()
+    args       = data.get('args', '').strip()
+    session_id = data.get('session_id')
+
+    if not command:
+        return JsonResponse({'error': 'No command specified'}, status=400)
+
+    session = get_object_or_404(Session, pk=session_id, user=request.user)
+    full_command = f"{command} {args}".strip() if args else command
+    start = time.time()
+
+    if REDIS_AVAILABLE:
+        result = _dispatch_via_redis(host.hostname, command, args)
+    else:
+        result = (
+            f'[Redis not available]\n'
+            f'Command "{full_command}" could not be dispatched.\n'
+            f'Ensure Redis is running and the socket service is connected.'
+        )
+
+    duration_ms = int((time.time() - start) * 1000)
+
+    log = CommandLog.objects.create(
+        session       = session,
+        user          = request.user,
+        host          = host,
+        command_name  = command,
+        command_args  = args,
+        result_output = result,
+        duration_ms   = duration_ms,
+    )
+
+    logger.info(f"Command '{full_command}' on {host.hostname} by {request.user} — {duration_ms}ms")
+
+    return JsonResponse({
+        'status':   'ok',
+        'log_id':   str(log.id),
+        'result':   result,
+        'duration': duration_ms,
+    })
+
+
+def _dispatch_via_redis(hostname, command, args):
+    """
+    Publish command to Redis and wait for the socket service to return a result.
+    Returns the result string, or an error message on timeout/failure.
+    """
+    request_id = str(uuid.uuid4())
+    channel    = f'radmin:cmd:{hostname}'
+    result_key = f'radmin:result:{hostname}:{request_id}'
+
+    payload = json.dumps({
+        'request_id': request_id,
+        'command':    command,
+        'args':       args,
+    })
+
+    try:
+        _redis.publish(channel, payload)
+        logger.debug(f"Published to {channel}: {payload}")
+    except Exception as e:
+        return f"Redis publish error: {e}"
+
+    # Poll for result (socket service sets a Redis key when done)
+    deadline = time.time() + COMMAND_TIMEOUT
+    while time.time() < deadline:
+        result = _redis.get(result_key)
+        if result is not None:
+            _redis.delete(result_key)
+            return result
+        time.sleep(0.1)  # poll every 100ms
+
+    return f'Timeout — no response from {hostname} within {COMMAND_TIMEOUT}s.'
+
+
+# ── Supporting endpoints ──────────────────────────────────────────────────────
+
 @login_required
 def host_command_log(request, host_id):
-    """
-    Returns recent command logs for a host as JSON.
-    Used by the frontend to refresh the output panel.
-    """
     host = get_object_or_404(ManagedHost, pk=host_id)
     session = Session.objects.filter(
         user=request.user,
@@ -101,10 +193,10 @@ def host_command_log(request, host_id):
     logs = session.command_logs.order_by('-executed_at')[:50]
     data = [
         {
-            'command':    log.command_name,
-            'args':       log.command_args,
-            'output':     log.result_output,
-            'duration':   log.duration_ms,
+            'command':     log.command_name,
+            'args':        log.command_args,
+            'output':      log.result_output,
+            'duration':    log.duration_ms,
             'executed_at': log.executed_at.strftime('%H:%M:%S'),
         }
         for log in logs
@@ -115,9 +207,6 @@ def host_command_log(request, host_id):
 @login_required
 @require_POST
 def close_session(request, session_id):
-    """
-    Close an active work session.
-    """
     session = get_object_or_404(Session, pk=session_id, user=request.user)
     session.close(reason='user_closed')
     return JsonResponse({'status': 'closed'})
@@ -126,8 +215,6 @@ def close_session(request, session_id):
 @login_required
 @require_POST
 def save_ticket_ref(request, session_id):
-    """Update the ticket reference for a session."""
-    import json
     session = get_object_or_404(Session, pk=session_id, user=request.user)
     data = json.loads(request.body)
     session.ticket_ref = data.get('ticket_ref', '')
@@ -135,51 +222,15 @@ def save_ticket_ref(request, session_id):
     return JsonResponse({'status': 'saved'})
 
 
-@login_required
-@require_POST
-def dispatch_command(request, host_id):
-    """
-    Receive a command from the web UI, log it, and forward
-    it to the socket service via Redis.
-    This is the bridge between Django and the socket service.
-    """
-    import json
-    import time
-    host = get_object_or_404(ManagedHost, pk=host_id)
-    data = json.loads(request.body)
+# ── Host status update (called by Redis status listener) ─────────────────────
 
-    command    = data.get('command', '').strip()
-    args       = data.get('args', '').strip()
-    session_id = data.get('session_id')
-
-    if not command:
-        return JsonResponse({'error': 'No command specified'}, status=400)
-
-    session = get_object_or_404(Session, pk=session_id, user=request.user)
-
-    # Build the full command string
-    full_command = f"{command} {args}".strip() if args else command
-
-    # TODO: Forward to socket service via Redis in next session
-    # For now, record a placeholder log entry so the UI works
-    start = time.time()
-
-    log = CommandLog.objects.create(
-        session      = session,
-        user         = request.user,
-        host         = host,
-        command_name = command,
-        command_args = args,
-        result_output = f'[Command queued: {full_command}]\n'
-                        f'Socket service bridge not yet connected.\n'
-                        f'This will execute on {host.hostname} once Redis bridge is wired up.',
-        duration_ms  = int((time.time() - start) * 1000),
-    )
-
-    logger.info(f"Command queued: {full_command} on {host.hostname} by {request.user}")
-
-    return JsonResponse({
-        'status':  'queued',
-        'log_id':  str(log.id),
-        'message': f'Command {full_command} queued for {host.hostname}',
-    })
+def update_host_status(hostname, online):
+    """Called by a background thread listening to radmin:host:status."""
+    try:
+        ManagedHost.objects.filter(hostname=hostname).update(
+            is_online=online,
+            last_seen=timezone.now() if online else None
+        )
+        logger.info(f"Host status updated: {hostname} → {'online' if online else 'offline'}")
+    except Exception as e:
+        logger.error(f"Error updating host status: {e}")
