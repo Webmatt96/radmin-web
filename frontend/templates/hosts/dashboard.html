@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard — RAdmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-bar {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 28px;
+    }
+
+    .summary-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .summary-value {
+        font-size: 32px;
+        font-weight: 700;
+    }
+
+    .summary-label {
+        color: var(--text-dim);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .summary-value.online  { color: var(--accent2); }
+    .summary-value.offline { color: var(--danger); }
+
+    .host-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
+    }
+
+    .host-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        text-decoration: none;
+        color: var(--text);
+        display: block;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    .host-card:hover {
+        border-color: var(--accent);
+        background: var(--surface2);
+    }
+
+    .host-card.online  { border-left: 3px solid var(--accent2); }
+    .host-card.offline { border-left: 3px solid var(--border); }
+
+    .host-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .host-name {
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    .host-meta {
+        color: var(--text-dim);
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 8px;
+    }
+
+    .host-meta span { display: flex; gap: 6px; }
+
+    .os-icon { font-size: 13px; }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+    }
+
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .env-filter {
+        display: flex;
+        gap: 8px;
+    }
+
+    .env-filter button {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-family: var(--font);
+    }
+
+    .env-filter button.active {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-dim);
+    }
+
+    .empty-state p { margin-top: 8px; font-size: 13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-subtitle">Managed host overview</div>
+    </div>
+</div>
+
+<!-- Summary bar -->
+<div class="summary-bar">
+    <div class="summary-card">
+        <div class="summary-value">{{ total }}</div>
+        <div class="summary-label">Total hosts</div>
+    </div>
+    <div class="summary-card">
+        <div class="summary-value online">{{ online }}</div>
+        <div class="summary-label">Online</div>
+    </div>
+    <div class="summary-card">
+        <div class="summary-value offline">{{ offline }}</div>
+        <div class="summary-label">Offline</div>
+    </div>
+</div>
+
+<!-- Host grid -->
+<div class="section-header">
+    <div class="section-title">Managed Hosts</div>
+</div>
+
+{% if hosts %}
+<div class="host-grid">
+    {% for host in hosts %}
+    <a href="{% url 'hosts:host_detail' host.id %}"
+       class="host-card {% if host.is_online %}online{% else %}offline{% endif %}">
+        <div class="host-card-header">
+            <div class="host-name">{{ host.hostname }}</div>
+            {% if host.is_online %}
+                <span class="badge badge-online">Online</span>
+            {% else %}
+                <span class="badge badge-offline">Offline</span>
+            {% endif %}
+        </div>
+
+        <div class="host-meta">
+            <span>
+                <span class="os-icon">
+                    {% if host.os_type == 'windows' %}🪟{% elif host.os_type == 'linux' %}🐧{% else %}🍎{% endif %}
+                </span>
+                {{ host.get_os_type_display }}
+            </span>
+            {% if host.ip_address %}
+            <span>🌐 {{ host.ip_address }}</span>
+            {% endif %}
+            <span>
+                {% if host.environment == 'production' %}
+                    <span class="badge badge-prod">Production</span>
+                {% elif host.environment == 'lab' %}
+                    <span class="badge badge-lab">Lab</span>
+                {% else %}
+                    <span class="badge">{{ host.get_environment_display }}</span>
+                {% endif %}
+            </span>
+            {% if host.last_seen %}
+            <span style="color: var(--text-dim); font-size: 11px;">
+                Last seen {{ host.last_seen|timesince }} ago
+            </span>
+            {% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div style="font-size: 48px;">🖥️</div>
+    <div style="font-size: 16px; font-weight: 600; margin-top: 16px;">No hosts registered</div>
+    <p>Add managed hosts through the <a href="/admin/hosts/managedhost/add/" style="color: var(--accent);">admin panel</a>.</p>
+</div>
+{% endif %}
+{% endblock %}

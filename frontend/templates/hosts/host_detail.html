@@ -1,0 +1,534 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ host.hostname }} — RAdmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .host-layout {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 20px;
+        align-items: start;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+    .host-info-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px;
+    }
+
+    .host-info-name {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .host-info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+    }
+
+    .host-info-row:last-child { border-bottom: none; }
+    .host-info-label { color: var(--text-dim); }
+
+    .command-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .command-panel-header {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .command-category { padding: 8px 0; }
+
+    .command-category-label {
+        padding: 6px 16px;
+        font-size: 11px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .command-btn {
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        padding: 8px 16px;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 13px;
+        font-family: var(--font);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        transition: background 0.1s;
+    }
+
+    .command-btn:hover { background: var(--surface2); }
+    .command-btn:active { background: var(--border); }
+
+    .command-btn .cmd-name { font-weight: 500; }
+    .command-btn .cmd-desc { color: var(--text-dim); font-size: 11px; }
+
+    .requires-elevation {
+        font-size: 10px;
+        color: var(--warn);
+        border: 1px solid var(--warn);
+        padding: 1px 5px;
+        border-radius: 3px;
+    }
+
+    /* ── Main panel ── */
+    .main-panel { display: flex; flex-direction: column; gap: 16px; }
+
+    .ticket-bar {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+    }
+
+    .ticket-bar label { color: var(--text-dim); white-space: nowrap; }
+
+    .ticket-input {
+        flex: 1;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 6px 10px;
+        color: var(--text);
+        font-size: 13px;
+        font-family: var(--font);
+    }
+
+    .ticket-input:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    /* ── Output terminal ── */
+    .output-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        flex: 1;
+    }
+
+    .output-header {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .output-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-dim);
+    }
+
+    .output-actions { display: flex; gap: 8px; }
+
+    .output-terminal {
+        background: #0a0c14;
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 16px;
+        min-height: 400px;
+        max-height: 600px;
+        overflow-y: auto;
+        line-height: 1.6;
+    }
+
+    .output-entry { margin-bottom: 16px; }
+
+    .output-entry-header {
+        color: var(--accent);
+        margin-bottom: 4px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .output-entry-time { color: var(--text-dim); font-size: 11px; }
+    .output-entry-cmd  { font-weight: 600; }
+    .output-entry-duration { color: var(--text-dim); font-size: 11px; }
+
+    .output-entry-body {
+        color: #b8bcd8;
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding-left: 12px;
+        border-left: 2px solid var(--border);
+    }
+
+    .output-empty {
+        color: var(--text-dim);
+        text-align: center;
+        padding: 60px 20px;
+        font-family: var(--font);
+    }
+
+    /* ── Arg modal ── */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 200;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 24px;
+        width: 400px;
+    }
+
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+
+    .modal-input {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 8px 12px;
+        color: var(--text);
+        font-size: 14px;
+        font-family: var(--font);
+        margin-bottom: 16px;
+    }
+
+    .modal-input:focus { outline: none; border-color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── Spinner ── */
+    .spinner {
+        display: none;
+        width: 14px;
+        height: 14px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+    }
+
+    .spinner.active { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{% url 'hosts:dashboard' %}" style="color: var(--text-dim); text-decoration: none; font-size: 13px;">
+            ← Dashboard
+        </a>
+        <div class="page-title" style="margin-top: 6px;">
+            {% if host.os_type == 'windows' %}🪟{% else %}🐧{% endif %}
+            {{ host.hostname }}
+        </div>
+        <div class="page-subtitle">{{ host.ip_address }} · {{ host.get_environment_display }}</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+        {% if host.is_online %}
+            <span class="badge badge-online">Online</span>
+        {% else %}
+            <span class="badge badge-offline">Offline</span>
+        {% endif %}
+        <div class="spinner" id="spinner"></div>
+        <button class="btn btn-ghost" onclick="closeSession()">End Session</button>
+    </div>
+</div>
+
+<div class="host-layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="host-info-card">
+            <div class="host-info-name">
+                Host Info
+            </div>
+            <div class="host-info-row">
+                <span class="host-info-label">OS</span>
+                <span>{{ host.get_os_type_display }}</span>
+            </div>
+            <div class="host-info-row">
+                <span class="host-info-label">IP</span>
+                <span>{{ host.ip_address|default:"—" }}</span>
+            </div>
+            <div class="host-info-row">
+                <span class="host-info-label">Environment</span>
+                <span>{{ host.get_environment_display }}</span>
+            </div>
+            <div class="host-info-row">
+                <span class="host-info-label">Session</span>
+                <span style="font-size: 11px; color: var(--text-dim);">{{ session.started_at|time:"H:i" }}</span>
+            </div>
+        </div>
+
+        <!-- Command panel -->
+        <div class="command-panel">
+            <div class="command-panel-header">Commands</div>
+            {% for category, commands in categories.items %}
+            <div class="command-category">
+                <div class="command-category-label">{{ category }}</div>
+                {% for cmd in commands %}
+                <button class="command-btn"
+                        onclick="runCommand('{{ cmd.command_name }}', {% if cmd.takes_argument %}true{% else %}false{% endif %}, '{{ cmd.argument_hint }}')">
+                    <div>
+                        <div class="cmd-name">{{ cmd.display_name }}</div>
+                        {% if cmd.description %}
+                        <div class="cmd-desc">{{ cmd.description|truncatechars:50 }}</div>
+                        {% endif %}
+                    </div>
+                    {% if cmd.requires_elevation %}
+                    <span class="requires-elevation">⬆ elevated</span>
+                    {% endif %}
+                </button>
+                {% endfor %}
+            </div>
+            {% empty %}
+            <div style="padding: 20px 16px; color: var(--text-dim); font-size: 13px;">
+                No commands configured for this host.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Main panel -->
+    <div class="main-panel">
+        <!-- Ticket reference bar -->
+        <div class="ticket-bar">
+            <label for="ticketRef">🎫 Ticket:</label>
+            <input type="text"
+                   id="ticketRef"
+                   class="ticket-input"
+                   placeholder="Enter ticket number (optional)"
+                   value="{{ session.ticket_ref }}">
+            <button class="btn btn-ghost" onclick="saveTicketRef()">Save</button>
+        </div>
+
+        <!-- Output terminal -->
+        <div class="output-panel">
+            <div class="output-header">
+                <span class="output-title">Command Output</span>
+                <div class="output-actions">
+                    <button class="btn btn-ghost" onclick="copyLog()" style="font-size: 12px;">Copy Log</button>
+                    <button class="btn btn-ghost" onclick="clearOutput()" style="font-size: 12px;">Clear</button>
+                </div>
+            </div>
+            <div class="output-terminal" id="outputTerminal">
+                {% if recent_logs %}
+                    {% for log in recent_logs reversed %}
+                    <div class="output-entry">
+                        <div class="output-entry-header">
+                            <span class="output-entry-time">{{ log.executed_at|time:"H:i:s" }}</span>
+                            <span class="output-entry-cmd">{{ log.command_name }}{% if log.command_args %} {{ log.command_args }}{% endif %}</span>
+                            {% if log.duration_ms %}
+                            <span class="output-entry-duration">{{ log.duration_ms }}ms</span>
+                            {% endif %}
+                        </div>
+                        <div class="output-entry-body">{{ log.result_output }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="output-empty">
+                    Select a command from the sidebar to get started.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Argument modal -->
+<div class="modal-overlay" id="argModal">
+    <div class="modal">
+        <div class="modal-title" id="argModalTitle">Enter argument</div>
+        <input type="text" class="modal-input" id="argInput" placeholder="">
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeArgModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitArg()">Run</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SESSION_ID = '{{ session.id }}';
+const HOST_ID    = '{{ host.id }}';
+const LOGS_URL   = '{% url "hosts:host_command_log" host.id %}';
+const CSRF       = '{{ csrf_token }}';
+
+let pendingCommand = null;
+
+function runCommand(name, takesArg, argHint) {
+    if (takesArg) {
+        document.getElementById('argModalTitle').textContent = `${name}: ${argHint || 'argument'}`;
+        document.getElementById('argInput').placeholder = argHint || '';
+        document.getElementById('argInput').value = '';
+        document.getElementById('argModal').classList.add('active');
+        document.getElementById('argInput').focus();
+        pendingCommand = name;
+    } else {
+        dispatchCommand(name, '');
+    }
+}
+
+function closeArgModal() {
+    document.getElementById('argModal').classList.remove('active');
+    pendingCommand = null;
+}
+
+function submitArg() {
+    const arg = document.getElementById('argInput').value.trim();
+    closeArgModal();
+    if (pendingCommand) {
+        dispatchCommand(pendingCommand, arg);
+    }
+}
+
+document.getElementById('argInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitArg();
+    if (e.key === 'Escape') closeArgModal();
+});
+
+function dispatchCommand(command, args) {
+    setSpinner(true);
+    appendOutputEntry(command, args, 'Running...', null);
+
+    fetch(`/hosts/${HOST_ID}/command/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+        },
+        body: JSON.stringify({ command, args, session_id: SESSION_ID }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        setSpinner(false);
+        refreshOutput();
+    })
+    .catch(err => {
+        setSpinner(false);
+        appendOutputEntry(command, args, `Error: ${err.message}`, null);
+    });
+}
+
+function appendOutputEntry(command, args, output, duration) {
+    const terminal = document.getElementById('outputTerminal');
+    const empty = terminal.querySelector('.output-empty');
+    if (empty) empty.remove();
+
+    const now = new Date().toTimeString().slice(0, 8);
+    const entry = document.createElement('div');
+    entry.className = 'output-entry';
+    entry.innerHTML = `
+        <div class="output-entry-header">
+            <span class="output-entry-time">${now}</span>
+            <span class="output-entry-cmd">${command}${args ? ' ' + args : ''}</span>
+            ${duration ? `<span class="output-entry-duration">${duration}ms</span>` : ''}
+        </div>
+        <div class="output-entry-body">${escapeHtml(output)}</div>
+    `;
+    terminal.appendChild(entry);
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function refreshOutput() {
+    fetch(LOGS_URL)
+    .then(r => r.json())
+    .then(data => {
+        if (!data.logs.length) return;
+        const terminal = document.getElementById('outputTerminal');
+        terminal.innerHTML = '';
+        data.logs.reverse().forEach(log => {
+            const entry = document.createElement('div');
+            entry.className = 'output-entry';
+            entry.innerHTML = `
+                <div class="output-entry-header">
+                    <span class="output-entry-time">${log.executed_at}</span>
+                    <span class="output-entry-cmd">${log.command}${log.args ? ' ' + log.args : ''}</span>
+                    ${log.duration ? `<span class="output-entry-duration">${log.duration}ms</span>` : ''}
+                </div>
+                <div class="output-entry-body">${escapeHtml(log.output)}</div>
+            `;
+            terminal.appendChild(entry);
+        });
+        terminal.scrollTop = terminal.scrollHeight;
+    });
+}
+
+function saveTicketRef() {
+    const ref = document.getElementById('ticketRef').value.trim();
+    fetch(`/hosts/session/${SESSION_ID}/ticket/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ ticket_ref: ref }),
+    });
+}
+
+function closeSession() {
+    if (!confirm('End this session?')) return;
+    fetch(`/hosts/session/${SESSION_ID}/close/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF },
+    }).then(() => window.location = '/hosts/');
+}
+
+function copyLog() {
+    const terminal = document.getElementById('outputTerminal');
+    navigator.clipboard.writeText(terminal.innerText);
+}
+
+function clearOutput() {
+    document.getElementById('outputTerminal').innerHTML =
+        '<div class="output-empty">Select a command from the sidebar to get started.</div>';
+}
+
+function setSpinner(on) {
+    document.getElementById('spinner').classList.toggle('active', on);
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+</script>
+{% endblock %}

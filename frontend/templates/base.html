@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RAdmin{% endblock %}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #0f1117;
+            --surface:   #1a1d27;
+            --surface2:  #22263a;
+            --border:    #2e3350;
+            --accent:    #4f8ef7;
+            --accent2:   #3dd68c;
+            --danger:    #f75f4f;
+            --warn:      #f7a94f;
+            --text:      #e2e4f0;
+            --text-dim:  #7b80a0;
+            --font:      'Segoe UI', system-ui, sans-serif;
+            --mono:      'Consolas', 'Courier New', monospace;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 14px;
+            min-height: 100vh;
+        }
+
+        /* ── Nav ── */
+        nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-brand {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent);
+            text-decoration: none;
+            letter-spacing: 0.04em;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+
+        .nav-right a {
+            color: var(--text-dim);
+            text-decoration: none;
+        }
+
+        .nav-right a:hover { color: var(--text); }
+
+        /* ── Layout ── */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 28px 24px;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: var(--font);
+            font-weight: 500;
+            text-decoration: none;
+            transition: opacity 0.15s;
+        }
+
+        .btn:hover { opacity: 0.85; }
+        .btn-primary  { background: var(--accent);  color: #fff; }
+        .btn-success  { background: var(--accent2); color: #111; }
+        .btn-danger   { background: var(--danger);  color: #fff; }
+        .btn-ghost    { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+        /* ── Status badges ── */
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        .badge-online  { background: #1a3d2b; color: var(--accent2); }
+        .badge-offline { background: #3d1a1a; color: var(--danger); }
+        .badge-lab     { background: #1a2a3d; color: var(--accent); }
+        .badge-prod    { background: #3d2a1a; color: var(--warn); }
+
+        /* ── Page header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .page-title {
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        .page-subtitle {
+            color: var(--text-dim);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        /* ── Messages ── */
+        .messages { margin-bottom: 16px; }
+        .message {
+            padding: 10px 16px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .message-error   { background: #3d1a1a; color: var(--danger); }
+        .message-success { background: #1a3d2b; color: var(--accent2); }
+        .message-info    { background: #1a2a3d; color: var(--accent); }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <a href="{% url 'hosts:dashboard' %}" class="nav-brand">⚡ RAdmin</a>
+        <div class="nav-right">
+            {% if user.is_authenticated %}
+                <span>{{ user.display_name|default:user.edipi }}</span>
+                <span>{{ user.role|default:"No role" }}</span>
+                <a href="{% url 'accounts:logout' %}">Sign out</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container">
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message message-{{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
