@@ -130,7 +130,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 LOGIN_URL = '/accounts/login/'
-LOGIN_REDIRECT_URL = '/dashboard/'
+LOGIN_REDIRECT_URL = '/hosts/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 # ── REST Framework ────────────────────────────────────────────────────────────
