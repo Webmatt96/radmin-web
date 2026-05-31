@@ -284,13 +284,25 @@ def past_session_worklog(request, session_id):
 
 # ── Host status update (called by Redis status listener) ─────────────────────
 
-def update_host_status(hostname, online):
+def update_host_status(hostname, online, ip_address=None):
     """Called by a background thread listening to radmin:host:status."""
     try:
-        ManagedHost.objects.filter(hostname=hostname).update(
-            is_online=online,
-            last_seen=timezone.now() if online else None
+        host, created = ManagedHost.objects.get_or_create(
+            hostname=hostname,
+            defaults={
+                'ip_address':   ip_address or '',
+                'os_type':      'windows' if hostname.upper().startswith('WIN-') else 'linux',
+                'environment':  'lab',
+                'description':  'Auto-registered on first connection',
+            }
         )
+        host.is_online = online
+        if online:
+            host.last_seen = timezone.now()
+        host.save(update_fields=['is_online', 'last_seen'])
+
+        if created:
+            logger.info(f"Auto-registered new host: {hostname}")
         logger.info(f"Host status updated: {hostname} → {'online' if online else 'offline'}")
     except Exception as e:
         logger.error(f"Error updating host status: {e}")
