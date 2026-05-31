@@ -7,7 +7,7 @@ from .base import *
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.122.1']
 
 # Allow CAC auth to be bypassed in dev with a test user
 CAC_DEV_BYPASS = True

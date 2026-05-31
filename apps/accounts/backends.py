@@ -2,11 +2,16 @@
 apps/accounts/backends.py
 CAC authentication backend.
 
-Extracts the EDIPI and Distinguished Name from the client certificate
-and looks up or creates the corresponding User record.
+Extracts the identifier and Distinguished Name from the client certificate
+and looks up the corresponding pre-provisioned User record.
 
-Certificate DN format for DoD CAC:
-CN=LASTNAME.FIRSTNAME.MI.EDIPI,OU=USA,OU=PKI,OU=DoD,O=U.S. Government,C=US
+Supported certificate CN formats:
+  DoD CAC:          LASTNAME.FIRSTNAME.MI.1234567890  (10-digit EDIPI)
+  Ascendant Group:  LASTNAME.FIRSTNAME.MI.TAG-000001  (division-prefixed AGID)
+
+Pre-provisioned accounts only — this backend does NOT create users on first
+login. An administrator must provision the account before the certificate
+will be accepted.
 """
 
 import logging
@@ -18,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+# DoD EDIPI: exactly 10 digits
+EDIPI_PATTERN = re.compile(r'^\d{10}$')
+
+# Ascendant AGID: uppercase letters, hyphen, digits (e.g. TAG-000001)
+AGID_PATTERN = re.compile(r'^[A-Z]{2,6}-\d{4,8}$')
+
 
 class CACAuthBackend(BaseBackend):
 
@@ -26,50 +37,43 @@ class CACAuthBackend(BaseBackend):
             return None
 
         try:
-            edipi, dn, display_name = self._parse_certificate(cert_data)
+            identifier, dn, display_name = self._parse_certificate(cert_data)
         except Exception as e:
-            logger.error(f"Failed to parse CAC certificate: {e}")
+            logger.error(f"Failed to parse certificate: {e}")
             return None
 
-        if not edipi:
-            logger.warning("Could not extract EDIPI from certificate")
+        if not identifier:
+            logger.warning("Could not extract EDIPI or AGID from certificate")
             return None
 
+        # Pre-provisioned accounts only — look up, do not create
         try:
-            user, created = User.objects.get_or_create(
-                edipi=edipi,
-                defaults={
-                    'distinguished_name': dn,
-                    'display_name':       display_name,
-                    'is_active':          True,
-                }
+            user = User.objects.get(edipi=identifier)
+        except User.DoesNotExist:
+            logger.warning(
+                f"Certificate presented for unknown identifier: {identifier} "
+                f"— account not provisioned"
             )
-
-            if created:
-                user.set_unusable_password()
-                user.save()
-                logger.info(f"Created new user from CAC: {edipi} - {display_name}")
-            else:
-                # Update DN and display name in case cert was reissued
-                updated = False
-                if user.distinguished_name != dn:
-                    user.distinguished_name = dn
-                    updated = True
-                if user.display_name != display_name:
-                    user.display_name = display_name
-                    updated = True
-                if updated:
-                    user.save()
-
-            if not user.is_active:
-                logger.warning(f"Inactive user attempted CAC login: {edipi}")
-                return None
-
-            return user
-
-        except Exception as e:
-            logger.error(f"Database error during CAC authentication: {e}")
             return None
+
+        if not user.is_active:
+            logger.warning(f"Inactive user attempted certificate login: {identifier}")
+            return None
+
+        # Update DN and display name if cert was reissued
+        updated = False
+        if user.distinguished_name != dn:
+            user.distinguished_name = dn
+            updated = True
+        if display_name and user.display_name != display_name:
+            user.display_name = display_name
+            updated = True
+        if updated:
+            user.save()
+            logger.info(f"Updated user record from certificate: {identifier}")
+
+        logger.info(f"Certificate login successful: {identifier} - {display_name}")
+        return user
 
     def get_user(self, user_id):
         try:
@@ -79,26 +83,21 @@ class CACAuthBackend(BaseBackend):
 
     def _parse_certificate(self, cert_data):
         """
-        Parse the PEM certificate data passed by Nginx and extract
-        the EDIPI, full DN, and display name.
+        Parse PEM certificate data passed by nginx and extract the
+        identifier (EDIPI or AGID), full DN, and display name.
 
-        The CN field of a DoD CAC certificate follows the format:
-        LASTNAME.FIRSTNAME.MI.EDIPI
-
-        This method handles both URL-encoded and raw PEM formats
-        since Nginx can pass the cert in either form.
+        Handles both URL-encoded and raw PEM formats since nginx
+        can pass the cert in either form.
         """
         from urllib.parse import unquote
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
-        import base64
 
-        # URL-decode if Nginx passed it encoded
+        # URL-decode if nginx passed it encoded
         cert_pem = unquote(cert_data)
 
         # Ensure proper PEM formatting
         if '-----BEGIN CERTIFICATE-----' not in cert_pem:
-            # Raw base64 — wrap it
             cert_pem = (
                 '-----BEGIN CERTIFICATE-----\n' +
                 cert_pem.replace(' ', '\n') +
@@ -109,26 +108,34 @@ class CACAuthBackend(BaseBackend):
             cert_pem.encode(), default_backend()
         )
 
-        # Extract the full Distinguished Name
+        # Extract full Distinguished Name
         dn = cert.subject.rfc4514_string()
 
         # Extract CN
-        cn_attr = cert.subject.get_attributes_for_oid(
-            x509.NameOID.COMMON_NAME
-        )
-        if not cn_attr:
+        cn_attrs = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+        if not cn_attrs:
             raise ValueError("No CN found in certificate subject")
 
-        cn = cn_attr[0].value  # e.g. "DOE.JOHN.A.1234567890"
-
-        # Parse EDIPI (last segment of CN, 10 digits)
+        cn = cn_attrs[0].value  # e.g. "MATTHEWS.JASON.B.TAG-000001"
         parts = cn.split('.')
-        edipi = parts[-1] if parts[-1].isdigit() and len(parts[-1]) == 10 else None
 
-        # Build display name from CN parts
+        # Extract identifier from last CN segment
+        identifier = None
+        if parts:
+            last = parts[-1]
+            if EDIPI_PATTERN.match(last):
+                identifier = last          # DoD EDIPI
+                logger.debug(f"Parsed DoD EDIPI: {identifier}")
+            elif AGID_PATTERN.match(last.upper()):
+                identifier = last.upper()  # Ascendant AGID
+                logger.debug(f"Parsed Ascendant AGID: {identifier}")
+            else:
+                logger.warning(f"CN last segment '{last}' matches neither EDIPI nor AGID pattern")
+
+        # Build display name from CN: LASTNAME.FIRSTNAME... -> "Firstname Lastname"
         if len(parts) >= 2:
-            display_name = f"{parts[1]} {parts[0]}".title()
+            display_name = f"{parts[1].capitalize()} {parts[0].capitalize()}"
         else:
             display_name = cn
 
-        return edipi, dn, display_name
+        return identifier, dn, display_name
