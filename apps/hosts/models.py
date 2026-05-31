@@ -73,6 +73,8 @@ class HostCommand(models.Model):
     description       = models.CharField(max_length=255, blank=True)
     category          = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='custom')
     requires_elevation = models.BooleanField(default=False)
+    takes_argument    = models.BooleanField(default=False)
+    argument_hint     = models.CharField(max_length=100, blank=True)
     is_active         = models.BooleanField(default=True)
     created_at        = models.DateTimeField(auto_now_add=True)
 
