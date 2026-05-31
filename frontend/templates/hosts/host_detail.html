@@ -455,10 +455,11 @@ function closeArgModal() {
 }
 
 function submitArg() {
-    const arg = document.getElementById('argInput').value.trim();
+    const arg     = document.getElementById('argInput').value.trim();
+    const command = pendingCommand;  // Save before closeArgModal nulls it
     closeArgModal();
-    if (pendingCommand) {
-        dispatchCommand(pendingCommand, arg);
+    if (command) {
+        dispatchCommand(command, arg);
     }
 }
 
