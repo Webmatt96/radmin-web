@@ -25,3 +25,4 @@ venv/
 .vscode/
 .idea/
 *.swp
+jira_info.txt

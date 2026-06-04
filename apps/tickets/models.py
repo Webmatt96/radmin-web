@@ -6,6 +6,7 @@ Ticketing system integration and work log export tracking.
 import uuid
 from django.db import models
 from django.utils import timezone
+from apps.sessions.models import Session as RAdminSession
 
 
 class TicketIntegration(models.Model):
@@ -67,7 +68,7 @@ class WorkLogExport(models.Model):
 
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session          = models.ForeignKey(
-                           'sessions.Session',
+                           RAdminSession,
                            on_delete=models.PROTECT,
                            related_name='work_log_exports'
                        )

@@ -8,16 +8,17 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.utils.decorators import method_decorator
 
 from .models import TicketIntegration, WorkLogExport
 from .integrations.base import get_exporter
-from apps.sessions.models import Session
+from apps.sessions.models import Session as RAdminSession
 
 logger = logging.getLogger(__name__)
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(['POST'])
 def export_session(request, session_id):
@@ -31,7 +32,7 @@ def export_session(request, session_id):
 
     Returns JSON: {success, ticket_id, message}
     """
-    session = get_object_or_404(Session, id=session_id)
+    session = get_object_or_404(RAdminSession, id=session_id)
 
     try:
         body           = json.loads(request.body)
@@ -129,6 +130,7 @@ def list_integrations(request):
     return JsonResponse({'integrations': list(integrations)})
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(['POST'])
 def test_integration(request, integration_id):
