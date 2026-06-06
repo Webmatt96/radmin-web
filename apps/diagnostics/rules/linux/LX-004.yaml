@@ -1,0 +1,63 @@
+# LX-004 — OOM Killer Triggered
+# Detects evidence of the Out Of Memory killer in kernel logs.
+# When the OOM killer fires it means the system ran out of memory
+# and the kernel terminated a process to recover. This is always
+# a serious event that requires investigation.
+
+rule:
+  id: LX-004
+  name: OOM Killer Triggered
+  version: "1.0"
+  severity: critical
+  platform: linux
+  category: os
+  description: >
+    Detects evidence of the Linux Out Of Memory (OOM) killer in kernel
+    logs. OOM killer activation means the system exhausted physical
+    memory and swap, forcing the kernel to kill processes to survive.
+    This always requires investigation.
+  status: active
+
+collect:
+  - command: dmesg | grep -i "oom\|out of memory\|killed process" | tail -30
+  - command: journalctl -k --no-pager | grep -i "oom\|out of memory\|killed process" | tail -30
+
+conditions:
+  match: any
+  patterns:
+    - field: dmesg | grep -i "oom\|out of memory\|killed process" | tail -30
+      condition: regex
+      value: '(oom.kill|Out of memory|Killed process)'
+      severity: critical
+    - field: journalctl -k --no-pager | grep -i "oom\|out of memory\|killed process" | tail -30
+      condition: regex
+      value: '(oom.kill|Out of memory|Killed process)'
+      severity: critical
+
+finding:
+  probable_cause: >
+    The Linux OOM killer has been triggered, meaning the system exhausted
+    all available physical memory and swap space. The kernel terminated
+    one or more processes to recover memory. Services or data may have
+    been lost. Investigate what process triggered OOM and why memory
+    was exhausted.
+  confidence: high
+  detail_field: dmesg | grep -i "oom\|out of memory\|killed process" | tail -30
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: dmesg | grep -i "oom\|out of memory\|killed process" | tail -50
+      description: "Get full OOM event details from kernel log"
+    - action: run_command
+      command: free -h && cat /proc/meminfo | grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree'
+      description: "Check current memory state"
+    - action: run_command
+      command: ps aux --sort=-%mem | head -20
+      description: "Identify current top memory consumers"
+    - action: run_command
+      command: journalctl -k -b --no-pager | grep -i "oom" | head -30
+      description: "Check journal for OOM events in current boot"
+  escalate_to_ticket: true
+  ticket_priority: critical

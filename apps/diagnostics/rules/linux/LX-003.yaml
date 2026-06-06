@@ -1,0 +1,54 @@
+# LX-003 — Systemd Service Failed
+# Detects systemd services in a failed state. A failed service
+# means a critical process has crashed and is not running.
+# This is always actionable — no service should stay failed.
+
+rule:
+  id: LX-003
+  name: Systemd Service Failed
+  version: "1.0"
+  severity: critical
+  platform: linux
+  category: service
+  description: >
+    Detects systemd services in a failed state. Any failed service
+    indicates a process crash that needs investigation and remediation.
+    Failed services do not restart automatically unless configured to do so.
+  status: active
+
+collect:
+  - command: systemctl list-units --state=failed --no-legend
+  - command: systemctl --failed --no-legend
+
+conditions:
+  match: any
+  patterns:
+    - field: systemctl list-units --state=failed --no-legend
+      condition: regex
+      value: '.+'
+      severity: critical
+    - field: systemctl --failed --no-legend
+      condition: regex
+      value: '.+'
+      severity: critical
+
+finding:
+  probable_cause: >
+    One or more systemd services are in a failed state. This indicates
+    a process crash or startup failure. The service is not running and
+    its functionality is unavailable. Review the service journal for
+    the cause of failure before attempting restart.
+  confidence: high
+  detail_field: systemctl list-units --state=failed --no-legend
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: systemctl list-units --state=failed
+      description: "List all failed services with details"
+    - action: run_command
+      command: journalctl -p err -b --no-pager | tail -50
+      description: "Show error-level journal entries from current boot"
+  escalate_to_ticket: true
+  ticket_priority: critical

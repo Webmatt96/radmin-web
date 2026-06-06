@@ -26,6 +26,11 @@ rule:
     indicates a Veeam cleanup failure and must be removed.
   status: active
 
+prerequisites:
+  - command: Get-WindowsFeature -Name Hyper-V | Select-Object -ExpandProperty InstallState
+    condition: contains
+    value: "Installed"
+
 collect:
   - command: Get-VM | Get-VMSnapshot | Select-Object VMName,Name,CreationTime | Format-List
 

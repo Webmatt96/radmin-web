@@ -1,0 +1,57 @@
+# LX-002 — High Memory Utilization
+# Detects when available memory is critically low on Linux.
+# Uses /proc/meminfo for accurate available memory figures.
+
+rule:
+  id: LX-002
+  name: High Memory Utilization
+  version: "1.0"
+  severity: warning
+  platform: linux
+  category: os
+  description: >
+    Detects high physical memory utilization on Linux servers.
+    When available memory is critically low the kernel invokes
+    the OOM killer which terminates processes to recover memory.
+  status: active
+
+collect:
+  - command: free -h
+  - command: cat /proc/meminfo | grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree'
+  - command: ps aux --sort=-%mem | head -15
+
+conditions:
+  match: any
+  patterns:
+    - field: cat /proc/meminfo | grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree'
+      condition: regex
+      value: 'MemAvailable:\s+[0-9]{1,5}\s+kB'
+      severity: warning
+    - field: cat /proc/meminfo | grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree'
+      condition: regex
+      value: 'SwapFree:\s+0\s+kB'
+      severity: critical
+
+finding:
+  probable_cause: >
+    Available physical memory is low. The top memory-consuming processes
+    are listed in the detail. If swap is also exhausted the OOM killer
+    may terminate processes. Common causes include memory leaks,
+    insufficient RAM for workload, or VM memory overcommitment.
+  confidence: medium
+  detail_field: ps aux --sort=-%mem | head -15
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: free -h && echo "---" && cat /proc/meminfo | grep -E 'MemTotal|MemAvailable|Cached|SwapTotal|SwapFree'
+      description: "Show detailed memory statistics"
+    - action: run_command
+      command: ps aux --sort=-%mem | head -20
+      description: "List top 20 memory-consuming processes"
+    - action: run_command
+      command: dmesg | grep -i "oom\|out of memory\|killed process" | tail -20
+      description: "Check for recent OOM killer activity"
+  escalate_to_ticket: true
+  ticket_priority: medium

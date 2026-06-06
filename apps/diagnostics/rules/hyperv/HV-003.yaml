@@ -14,6 +14,11 @@ rule:
     An offline or degraded CSV means VMs on that storage cannot run.
   status: active
 
+prerequisites:
+  - command: Get-WindowsFeature -Name Hyper-V | Select-Object -ExpandProperty InstallState
+    condition: contains
+    value: "Installed"
+
 collect:
   - command: Get-ClusterSharedVolume
   - command: Get-ClusterSharedVolume | Select-Object Name,State,OwnerNode

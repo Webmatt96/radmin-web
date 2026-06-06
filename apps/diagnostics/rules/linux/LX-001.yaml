@@ -1,0 +1,71 @@
+# LX-001 — Disk Space Critical
+# Detects Linux filesystems with less than 10% free space.
+# Low disk space on Linux causes service failures, log truncation,
+# and can render a system unbootable if / fills up.
+# Autonomous cleanup of /tmp and journal logs is approved.
+
+rule:
+  id: LX-001
+  name: Low Disk Space
+  version: "1.0"
+  severity: warning
+  platform: linux
+  category: storage
+  description: >
+    Detects Linux filesystems with critically low free space.
+    A full filesystem causes service failures, prevents logging,
+    and can render the system unable to boot or function.
+  status: active
+
+collect:
+  - command: df -h
+  - command: df -h | awk '$5+0 >= 80 {print}'
+
+conditions:
+  match: any
+  patterns:
+    - field: df -h | awk '$5+0 >= 80 {print}'
+      condition: regex
+      value: '(9[0-9]|100)%'
+      severity: critical
+    - field: df -h | awk '$5+0 >= 80 {print}'
+      condition: regex
+      value: '8[0-9]%'
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more filesystems are running low on disk space. Common causes
+    include log accumulation, large core dumps, application data growth,
+    or runaway log files. A full root filesystem will cause the system
+    to stop functioning.
+  confidence: high
+  detail_field: df -h
+
+remediation:
+  autonomous: true
+  autonomous_actions:
+    - action: run_command
+      command: rm -rf /tmp/* 2>/dev/null; echo "Cleared /tmp"
+      description: "Clear /tmp directory"
+    - action: run_command
+      command: journalctl --vacuum-size=500M && echo "Journal vacuumed to 500MB"
+      description: "Vacuum systemd journal to 500MB"
+    - action: run_command
+      command: find /var/log -name "*.gz" -mtime +30 -delete 2>/dev/null; echo "Removed compressed logs older than 30 days"
+      description: "Remove compressed log files older than 30 days"
+  recommended_actions:
+    - action: run_command
+      command: df -h
+      description: "Show filesystem usage summary"
+    - action: run_command
+      command: du -sh /* 2>/dev/null | sort -rh | head -20
+      description: "Find largest top-level directories"
+    - action: run_command
+      command: find /var/log -type f -size +100M 2>/dev/null | xargs ls -lh
+      description: "Find log files larger than 100MB"
+    - action: run_command
+      command: journalctl --disk-usage
+      description: "Show systemd journal disk usage"
+  escalate_to_ticket: true
+  ticket_priority: high

@@ -15,6 +15,11 @@ rule:
     A non-Up node indicates hardware failure, OS crash, or network issues.
   status: active
 
+  prerequisites:
+  - command: Get-WindowsFeature -Name Hyper-V | Select-Object -ExpandProperty InstallState
+    condition: contains
+    value: "Installed"
+
 collect:
   - command: Get-ClusterNode
   - command: Get-ClusterNode | Select-Object Name,State,NodeWeight

@@ -17,6 +17,11 @@ rule:
     from this rule as supplementary indicators only.
   status: active
 
+prerequisites:
+  - command: Get-WindowsFeature -Name Hyper-V | Select-Object -ExpandProperty InstallState
+    condition: contains
+    value: "Installed"
+
 collect:
   - command: Test-Cluster -Confirm:$false 2>&1 | Select-Object -Last 50
 

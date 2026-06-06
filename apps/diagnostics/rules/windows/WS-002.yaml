@@ -1,0 +1,52 @@
+# WS-002 — High Memory Utilization
+# Detects when available memory drops below safe thresholds.
+# Sustained high memory usage leads to excessive paging, performance
+# degradation, and eventual service failures or crashes.
+
+rule:
+  id: WS-002
+  name: High Memory Utilization
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: os
+  description: >
+    Detects high physical memory utilization on Windows servers.
+    Sustained high memory usage causes excessive paging and
+    performance degradation leading to service instability.
+  status: active
+
+collect:
+  - command: Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List
+  - command: Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 10 Name,Id,@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}} | Format-Table
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List
+      condition: regex
+      value: 'FreePhysicalMemory\s*:\s*[0-9]{1,6}\b'
+      severity: warning
+
+finding:
+  probable_cause: >
+    Physical memory utilization is high. The top memory-consuming processes
+    are listed in the detail. Common causes include memory leaks, runaway
+    processes, insufficient RAM for workload, or VM overcommitment.
+  confidence: medium
+  detail_field: Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 10 Name,Id,@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}} | Format-Table
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-CimInstance Win32_OperatingSystem | Select-Object @{N='TotalGB';E={[math]::Round($_.TotalVisibleMemorySize/1MB,2)}},@{N='FreeGB';E={[math]::Round($_.FreePhysicalMemory/1MB,2)}},@{N='UsedPct';E={[math]::Round(($_.TotalVisibleMemorySize-$_.FreePhysicalMemory)/$_.TotalVisibleMemorySize*100,1)}} | Format-List
+      description: "Show memory utilization summary"
+    - action: run_command
+      command: Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 20 Name,Id,@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}},@{N='CPU';E={[math]::Round($_.CPU,1)}} | Format-Table
+      description: "List top 20 memory-consuming processes"
+    - action: run_command
+      command: Get-EventLog -LogName System -EntryType Error,Warning -Newest 20 | Format-List TimeGenerated,Source,Message
+      description: "Check system event log for memory-related errors"
+  escalate_to_ticket: true
+  ticket_priority: medium

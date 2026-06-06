@@ -59,6 +59,14 @@ class DiagnosticEngine:
 
         for rule_def in rules:
             try:
+                for item in rule_def.get('collect', []):
+                    commands.add(item['command'])
+                # Also collect prerequisite commands
+                for prereq in rule_def.get('prerequisites', []):
+                    cmd = prereq.get('command', prereq.get('field', ''))
+                    if cmd:
+                        commands.add(cmd)
+                
                 finding = self._evaluate_rule(rule_def)
                 if finding:
                     self.findings.append(finding)
@@ -116,6 +124,15 @@ class DiagnosticEngine:
         rule_id    = rule.get('id', 'UNKNOWN')
         conditions = rule_def.get('conditions', {})
         finding_def = rule_def.get('finding', {})
+
+        # Check prerequisites before evaluating conditions
+        prerequisites = rule_def.get('prerequisites', [])
+        if prerequisites:
+            if not self._check_prerequisites(prerequisites):
+                logger.info(f"Rule {rule_id} skipped — prerequisites not met on {self.host.hostname}")
+                return None
+
+                return None
 
         match_mode = conditions.get('match', 'any')  # 'any' or 'all'
         patterns   = conditions.get('patterns', [])
@@ -200,6 +217,50 @@ class DiagnosticEngine:
             f"({severity}, {confidence} confidence)"
         )
         return finding
+
+    def _check_prerequisites(self, prerequisites: list) -> bool:
+        """Check all prerequisites — all must pass for the rule to run."""
+        for prereq in prerequisites:
+            field = prereq.get('command', prereq.get('field', ''))
+            data  = self.collected_data.get(field, '')
+            condition = prereq.get('condition', 'contains')
+            value = prereq.get('value', prereq.get('contains', ''))
+            if condition == 'contains':
+                if value.lower() not in data.lower():
+                    return False
+            elif condition == 'not_contains':
+                if value.lower() in data.lower():
+                    return False
+            elif condition == 'regex':
+                import re
+                if not re.search(value, data, re.IGNORECASE):
+                    return False
+        return True
+
+    def _check_prerequisites(self, prerequisites: list) -> bool:
+        """
+        Check all prerequisites for a rule.
+        All prerequisites must pass for the rule to run.
+        Returns True if all prerequisites are met, False otherwise.
+        """
+        for prereq in prerequisites:
+            field     = prereq.get('command', prereq.get('field', ''))
+            data      = self.collected_data.get(field, '')
+            condition = prereq.get('condition', 'contains')
+            value     = prereq.get('value', prereq.get('contains', ''))
+
+            if condition == 'contains':
+                if value.lower() not in data.lower():
+                    return False
+            elif condition == 'not_contains':
+                if value.lower() in data.lower():
+                    return False
+            elif condition == 'regex':
+                import re
+                if not re.search(value, data, re.IGNORECASE):
+                    return False
+
+        return True
 
     def _evaluate_pattern(self, pattern: dict, data: str):
         """

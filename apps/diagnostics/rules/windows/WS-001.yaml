@@ -1,0 +1,70 @@
+# WS-001 — Low Disk Space
+# Detects volumes with less than 10% free space or less than 5GB free.
+# Low disk space is one of the most common causes of service failures,
+# application crashes, and failed backups on Windows servers.
+# At critical threshold (5%) autonomous cleanup of temp files is approved.
+
+rule:
+  id: WS-001
+  name: Low Disk Space
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: storage
+  description: >
+    Detects Windows volumes with critically low free space.
+    Low disk space causes service failures, application crashes,
+    and backup failures. Early detection prevents outages.
+  status: active
+
+collect:
+  - command: Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | Format-List
+  - command: Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining,HealthStatus | Format-List
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining,HealthStatus | Format-List
+      condition: regex
+      value: 'SizeRemaining\s*:\s*[0-9]{1,9}\b'
+      severity: critical
+    - field: Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining,HealthStatus | Format-List
+      condition: contains
+      contains: "HealthStatus"
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more volumes are running low on disk space. Common causes include
+    log file accumulation, failed backup cleanup, application data growth,
+    or Windows Update cache. Immediate action required to prevent service failures.
+  confidence: medium
+  detail_field: Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining,HealthStatus | Format-List
+
+remediation:
+  autonomous: true
+  autonomous_actions:
+    - action: run_command
+      command: >
+        Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue;
+        Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue;
+        Write-Output "Temp file cleanup complete"
+      description: "Clear system and user temp files"
+    - action: run_command
+      command: >
+        Get-ChildItem -Path "C:\Windows\SoftwareDistribution\Download" -Recurse |
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue;
+        Write-Output "Windows Update cache cleared"
+      description: "Clear Windows Update download cache"
+  recommended_actions:
+    - action: run_command
+      command: Get-Volume | Select-Object DriveLetter,FileSystemLabel,@{N='SizeGB';E={[math]::Round($_.Size/1GB,2)}},@{N='FreeGB';E={[math]::Round($_.SizeRemaining/1GB,2)}},@{N='FreePct';E={[math]::Round($_.SizeRemaining/$_.Size*100,1)}} | Format-Table
+      description: "Show disk space summary with percentages"
+    - action: run_command
+      command: Get-ChildItem C:\ -Recurse -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 20 FullName,@{N='SizeMB';E={[math]::Round($_.Length/1MB,2)}} | Format-Table
+      description: "Find the 20 largest files on C:"
+    - action: run_command
+      command: Get-EventLog -LogName Application -Source *VSS* -Newest 10 | Format-List
+      description: "Check VSS/shadow copy errors that may consume space"
+  escalate_to_ticket: true
+  ticket_priority: high

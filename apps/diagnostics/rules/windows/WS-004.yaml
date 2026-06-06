@@ -1,0 +1,95 @@
+# WS-004 — Windows Update Pending Reboot
+# Detects when a server is waiting for a reboot to complete updates.
+# A server in a pending reboot state may have partially applied patches,
+# leaving it in an unpredictable state. In a cluster environment,
+# pending reboots should be coordinated to avoid simultaneous node loss.
+
+rule:
+  id: WS-004
+  name: Windows Update Pending Reboot
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: os
+  description: >
+    Detects Windows servers awaiting reboot to complete update installation.
+    Servers in pending reboot state have partially applied patches and
+    may behave unpredictably. Cluster reboots must be coordinated.
+  status: active
+
+collect:
+  - command: >
+      $rebootKeys = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+        'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+      );
+      $pending = $false;
+      foreach ($key in $rebootKeys) {
+        if (Test-Path $key) {
+          if ($key -like '*Session Manager*') {
+            $val = Get-ItemProperty $key -Name PendingFileRenameOperations -ErrorAction SilentlyContinue;
+            if ($val) { $pending = $true }
+          } else { $pending = $true }
+        }
+      };
+      Write-Output "PendingReboot: $pending"
+
+conditions:
+  match: any
+  patterns:
+    - field: >
+        $rebootKeys = @(
+          'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+          'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+          'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+        );
+        $pending = $false;
+        foreach ($key in $rebootKeys) {
+          if (Test-Path $key) {
+            if ($key -like '*Session Manager*') {
+              $val = Get-ItemProperty $key -Name PendingFileRenameOperations -ErrorAction SilentlyContinue;
+              if ($val) { $pending = $true }
+            } else { $pending = $true }
+          }
+        };
+        Write-Output "PendingReboot: $pending"
+      condition: contains
+      contains: "PendingReboot: True"
+      severity: warning
+
+finding:
+  probable_cause: >
+    This server has pending Windows Updates that require a reboot to complete.
+    The server is running with partially applied patches. Schedule a maintenance
+    window for reboot. In a Hyper-V cluster, coordinate with other nodes
+    to ensure quorum is maintained during the reboot sequence.
+  confidence: high
+  detail_field: >
+    $rebootKeys = @(
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+      'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+    );
+    $pending = $false;
+    foreach ($key in $rebootKeys) {
+      if (Test-Path $key) {
+        if ($key -like '*Session Manager*') {
+          $val = Get-ItemProperty $key -Name PendingFileRenameOperations -ErrorAction SilentlyContinue;
+          if ($val) { $pending = $true }
+        } else { $pending = $true }
+      }
+    };
+    Write-Output "PendingReboot: $pending"
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10 | Format-Table
+      description: "List recently installed updates"
+    - action: run_command
+      command: Get-ClusterNode -ErrorAction SilentlyContinue | Format-List Name,State
+      description: "Check cluster node states before scheduling reboot"
+  escalate_to_ticket: true
+  ticket_priority: low

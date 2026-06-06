@@ -1,0 +1,58 @@
+# WS-005 — Critical Event Log Errors
+# Detects critical or error-level events in the Windows System and
+# Application event logs within the last hour. A burst of errors
+# in a short timeframe indicates an active problem rather than
+# background noise.
+
+rule:
+  id: WS-005
+  name: Critical Event Log Errors in Last Hour
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: os
+  description: >
+    Detects a burst of critical or error-level events in Windows
+    System and Application event logs within the last hour.
+    A concentration of errors indicates an active problem.
+  status: active
+
+collect:
+  - command: Get-EventLog -LogName System -EntryType Error,Warning -Newest 50 -After (Get-Date).AddHours(-1) | Select-Object TimeGenerated,Source,EventID,Message | Format-List
+  - command: Get-EventLog -LogName Application -EntryType Error -Newest 20 -After (Get-Date).AddHours(-1) | Select-Object TimeGenerated,Source,EventID,Message | Format-List
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-EventLog -LogName System -EntryType Error,Warning -Newest 50 -After (Get-Date).AddHours(-1) | Select-Object TimeGenerated,Source,EventID,Message | Format-List
+      condition: contains
+      contains: "Error"
+      severity: warning
+    - field: Get-EventLog -LogName Application -EntryType Error -Newest 20 -After (Get-Date).AddHours(-1) | Select-Object TimeGenerated,Source,EventID,Message | Format-List
+      condition: contains
+      contains: "Error"
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more critical or error-level events were detected in the
+    Windows event logs within the last hour. Review the detail output
+    to identify the source and nature of the errors. Correlate with
+    any recent changes, service restarts, or user activity.
+  confidence: medium
+  detail_field: Get-EventLog -LogName System -EntryType Error,Warning -Newest 50 -After (Get-Date).AddHours(-1) | Select-Object TimeGenerated,Source,EventID,Message | Format-List
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-EventLog -LogName System -EntryType Error -Newest 20 -After (Get-Date).AddHours(-1) | Format-List TimeGenerated,Source,EventID,Message
+      description: "Get detailed system error events from last hour"
+    - action: run_command
+      command: Get-EventLog -LogName Application -EntryType Error -Newest 20 -After (Get-Date).AddHours(-1) | Format-List TimeGenerated,Source,EventID,Message
+      description: "Get detailed application error events from last hour"
+    - action: run_command
+      command: Get-EventLog -LogName System -EntryType Error -Newest 5 | Select-Object -ExpandProperty Message
+      description: "Get full message text of most recent system errors"
+  escalate_to_ticket: false
+  ticket_priority: low

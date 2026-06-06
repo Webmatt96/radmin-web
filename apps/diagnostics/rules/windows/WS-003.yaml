@@ -1,0 +1,56 @@
+# WS-003 — High CPU Utilization
+# Detects sustained high CPU usage that may indicate runaway processes,
+# malware, or workload issues. A single spike is normal — sustained
+# high CPU over time is the indicator of a real problem.
+
+rule:
+  id: WS-003
+  name: High CPU Utilization
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: os
+  description: >
+    Detects sustained high CPU utilization on Windows servers.
+    Brief CPU spikes are normal. Sustained high CPU indicates
+    runaway processes, resource contention, or workload issues.
+  status: active
+
+collect:
+  - command: Get-CimInstance Win32_Processor | Select-Object Name,LoadPercentage | Format-List
+  - command: Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name,Id,@{N='CPU';E={[math]::Round($_.CPU,1)}},@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}} | Format-Table
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-CimInstance Win32_Processor | Select-Object Name,LoadPercentage | Format-List
+      condition: regex
+      value: 'LoadPercentage\s*:\s*[8-9][0-9]|LoadPercentage\s*:\s*100'
+      severity: critical
+    - field: Get-CimInstance Win32_Processor | Select-Object Name,LoadPercentage | Format-List
+      condition: regex
+      value: 'LoadPercentage\s*:\s*7[0-9]'
+      severity: warning
+
+finding:
+  probable_cause: >
+    CPU utilization is elevated. The top CPU-consuming processes are listed
+    in the detail. Common causes include runaway processes, antivirus scans,
+    Windows Update activity, or insufficient CPU resources for the workload.
+  confidence: high
+  detail_field: Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name,Id,@{N='CPU';E={[math]::Round($_.CPU,1)}},@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}} | Format-Table
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name,Id,@{N='CPU';E={[math]::Round($_.CPU,1)}},@{N='MemMB';E={[math]::Round($_.WorkingSet/1MB,1)}},StartTime | Format-Table
+      description: "List top 20 CPU-consuming processes with start times"
+    - action: run_command
+      command: Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,LoadPercentage | Format-List
+      description: "Get detailed CPU information and current load"
+    - action: run_command
+      command: Get-EventLog -LogName System -EntryType Error -Newest 10 | Format-List TimeGenerated,Source,Message
+      description: "Check system event log for CPU-related errors"
+  escalate_to_ticket: true
+  ticket_priority: medium
