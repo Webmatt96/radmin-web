@@ -1,0 +1,72 @@
+# HV-004 — Stale VM Snapshot Detected
+# Detects VM snapshots older than 24 hours.
+#
+# Business rule: No snapshot should exist in production for more than
+# the time it takes to complete a backup. Veeam creates snapshots
+# during backup and should remove them immediately on completion.
+# Any snapshot older than 24 hours is a Veeam cleanup failure.
+#
+# This rule is APPROVED FOR AUTONOMOUS REMEDIATION.
+# Rationale: The business rule is unambiguous — no snapshot should
+# survive 24 hours. The action (Remove-VMSnapshot) is well-defined
+# and the risk of incorrect removal is low since snapshots are not
+# primary data.
+
+rule:
+  id: HV-004
+  name: Stale VM Snapshot Detected
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: hyperv
+  description: >
+    Detects VM snapshots older than 24 hours. In production, snapshots
+    are created only by Veeam during backup and should be removed
+    immediately after backup completes. A snapshot older than 24 hours
+    indicates a Veeam cleanup failure and must be removed.
+  status: active
+
+collect:
+  - command: Get-VM | Get-VMSnapshot | Select-Object VMName,Name,CreationTime | Format-List
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-VM | Get-VMSnapshot | Select-Object VMName,Name,CreationTime | Format-List
+      condition: older_than_hours
+      hours: 24
+      timestamp_regex: '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more VM snapshots are older than 24 hours. This indicates
+    a Veeam backup cleanup failure. Stale snapshots consume storage,
+    degrade VM performance, and indicate an incomplete backup operation.
+  confidence: high
+  detail_field: Get-VM | Get-VMSnapshot | Select-Object VMName,Name,CreationTime | Format-List
+
+remediation:
+  autonomous: true
+  autonomous_actions:
+    - action: run_command
+      command: >
+        Get-VM | Get-VMSnapshot |
+        Where-Object {$_.CreationTime -lt (Get-Date).AddHours(-24)} |
+        ForEach-Object {
+            Write-Output "Removing snapshot: $($_.Name) on $($_.VMName) created $($_.CreationTime)";
+            Remove-VMSnapshot -VMName $_.VMName -Name $_.Name -Confirm:$false
+        }
+      description: "Remove all VM snapshots older than 24 hours"
+  recommended_actions:
+    - action: run_command
+      command: Get-VM | Get-VMSnapshot | Select-Object VMName,Name,CreationTime | Format-List
+      description: "List all current snapshots"
+    - action: run_command
+      command: >
+        Get-VM | Get-VMSnapshot |
+        Where-Object {$_.CreationTime -lt (Get-Date).AddHours(-24)} |
+        Select-Object VMName,Name,CreationTime | Format-List
+      description: "List snapshots older than 24 hours"
+  escalate_to_ticket: true
+  ticket_priority: medium

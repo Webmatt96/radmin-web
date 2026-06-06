@@ -1,0 +1,61 @@
+# HV-002 — Cluster Resource Group Failed or Offline
+# Detects when cluster resource groups (roles) are not in an Online state.
+# This means VMs or services have failed and may not be running anywhere.
+
+rule:
+  id: HV-002
+  name: Cluster Resource Group Failed or Offline
+  version: "1.0"
+  severity: critical
+  platform: windows
+  category: hyperv
+  description: >
+    Detects Hyper-V failover cluster resource groups that are not Online.
+    A failed resource group means VMs or cluster roles are unavailable.
+  status: active
+
+collect:
+  - command: Get-ClusterGroup
+  - command: Get-ClusterResource | Where-Object {$_.State -ne 'Online'}
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-ClusterGroup
+      condition: contains
+      contains: "Failed"
+      severity: critical
+    - field: Get-ClusterGroup
+      condition: contains
+      contains: "Offline"
+      severity: critical
+    - field: Get-ClusterGroup
+      condition: contains
+      contains: "Partial Online"
+      severity: warning
+    - field: Get-ClusterResource | Where-Object {$_.State -ne 'Online'}
+      condition: regex
+      value: ".+"
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more cluster resource groups are not Online. VMs or cluster
+    roles may be unavailable. Check resource dependencies and event logs.
+  confidence: high
+  detail_field: Get-ClusterGroup
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-ClusterGroup | Format-List Name,State,OwnerNode
+      description: "Get detailed resource group status"
+    - action: run_command
+      command: Get-ClusterResource | Format-List Name,State,ResourceType,OwnerGroup
+      description: "Get individual resource status"
+    - action: run_command
+      command: Get-EventLog -LogName System -Source *Cluster* -Newest 20
+      description: "Check cluster event log for errors"
+  escalate_to_ticket: true
+  ticket_priority: critical

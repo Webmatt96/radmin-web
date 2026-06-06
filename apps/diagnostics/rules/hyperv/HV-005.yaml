@@ -1,0 +1,54 @@
+# HV-005 — Cluster Validation Warnings or Failures
+# Runs Test-Cluster and checks for failures or warnings.
+# Note: Test-Cluster output is often verbose and low-signal.
+# This rule is weighted low-confidence and should not trigger
+# autonomous action. Use as a supplementary indicator only.
+
+rule:
+  id: HV-005
+  name: Cluster Validation Warning or Failure
+  version: "1.0"
+  severity: warning
+  platform: windows
+  category: hyperv
+  description: >
+    Runs cluster validation and checks for failures or warnings.
+    Note: Test-Cluster output is often low-signal. Treat findings
+    from this rule as supplementary indicators only.
+  status: active
+
+collect:
+  - command: Test-Cluster -Confirm:$false 2>&1 | Select-Object -Last 50
+
+conditions:
+  match: any
+  patterns:
+    - field: Test-Cluster -Confirm:$false 2>&1 | Select-Object -Last 50
+      condition: contains
+      contains: "Failed"
+      severity: warning
+    - field: Test-Cluster -Confirm:$false 2>&1 | Select-Object -Last 50
+      condition: contains
+      contains: "Warning"
+      severity: info
+
+finding:
+  probable_cause: >
+    Cluster validation detected one or more warnings or failures.
+    Review the full validation report for details. Note that
+    Test-Cluster warnings are often informational and may not
+    indicate an active problem.
+  confidence: low
+  detail_field: Test-Cluster -Confirm:$false 2>&1 | Select-Object -Last 50
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Test-Cluster -Confirm:$false | Format-List
+      description: "Run full cluster validation with detailed output"
+    - action: run_command
+      command: Get-ClusterNode | Format-List Name,State
+      description: "Check node states for context"
+  escalate_to_ticket: false
+  ticket_priority: low

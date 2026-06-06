@@ -13,4 +13,5 @@ urlpatterns = [
     path('hosts/',    include('apps.hosts.urls')),
     path('sessions/', include('apps.sessions.urls')),
     path('tickets/',  include('apps.tickets.urls')),
+    path('diagnostics/', include('apps.diagnostics.urls')),
 ]

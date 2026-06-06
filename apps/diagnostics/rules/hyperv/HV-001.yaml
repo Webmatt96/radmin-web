@@ -1,0 +1,58 @@
+# HV-001 — Cluster Node Down or Unavailable
+# Detects when one or more Hyper-V cluster nodes are not in an Up state.
+# A node that is not Up may indicate hardware failure, OS crash, or
+# network partition. This is always a critical finding.
+
+rule:
+  id: HV-001
+  name: Cluster Node Down or Unavailable
+  version: "1.0"
+  severity: critical
+  platform: windows
+  category: hyperv
+  description: >
+    Detects Hyper-V failover cluster nodes that are not in an Up state.
+    A non-Up node indicates hardware failure, OS crash, or network issues.
+  status: active
+
+collect:
+  - command: Get-ClusterNode
+  - command: Get-ClusterNode | Select-Object Name,State,NodeWeight
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-ClusterNode
+      condition: contains
+      contains: "Down"
+      severity: critical
+    - field: Get-ClusterNode
+      condition: contains
+      contains: "Paused"
+      severity: warning
+    - field: Get-ClusterNode
+      condition: contains
+      contains: "Joining"
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more cluster nodes are not in an Up state. This may indicate
+    hardware failure, operating system crash, or network connectivity loss.
+  confidence: high
+  detail_field: Get-ClusterNode
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-ClusterNode | Format-List Name,State,NodeWeight,DynamicWeight
+      description: "Get detailed node status"
+    - action: run_command
+      command: Get-ClusterResource | Where-Object {$_.State -ne 'Online'}
+      description: "Check for offline cluster resources"
+    - action: run_command
+      command: Get-ClusterLog -TimeSpan 60
+      description: "Retrieve last 60 minutes of cluster log"
+  escalate_to_ticket: true
+  ticket_priority: critical

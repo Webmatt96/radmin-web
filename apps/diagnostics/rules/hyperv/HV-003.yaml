@@ -1,0 +1,58 @@
+# HV-003 — Cluster Shared Volume Offline or Degraded
+# Detects when CSVs are not in a normal state. A degraded or offline
+# CSV means VMs stored on it cannot run and data may be at risk.
+
+rule:
+  id: HV-003
+  name: Cluster Shared Volume Offline or Degraded
+  version: "1.0"
+  severity: critical
+  platform: windows
+  category: hyperv
+  description: >
+    Detects Cluster Shared Volumes (CSVs) that are not in a Normal state.
+    An offline or degraded CSV means VMs on that storage cannot run.
+  status: active
+
+collect:
+  - command: Get-ClusterSharedVolume
+  - command: Get-ClusterSharedVolume | Select-Object Name,State,OwnerNode
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-ClusterSharedVolume
+      condition: contains
+      contains: "Offline"
+      severity: critical
+    - field: Get-ClusterSharedVolume
+      condition: contains
+      contains: "Failed"
+      severity: critical
+    - field: Get-ClusterSharedVolume
+      condition: contains
+      contains: "Redirected"
+      severity: warning
+
+finding:
+  probable_cause: >
+    One or more Cluster Shared Volumes are not in a Normal state.
+    This may indicate storage hardware failure, iSCSI/FC connectivity
+    loss, or disk full condition.
+  confidence: high
+  detail_field: Get-ClusterSharedVolume
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-ClusterSharedVolume | Format-List Name,State,OwnerNode,SharedVolumeInfo
+      description: "Get detailed CSV status"
+    - action: run_command
+      command: Get-Disk | Format-List Number,FriendlyName,OperationalStatus,HealthStatus
+      description: "Check physical disk health"
+    - action: run_command
+      command: Get-EventLog -LogName System -Source *disk* -Newest 20
+      description: "Check disk event log"
+  escalate_to_ticket: true
+  ticket_priority: critical
