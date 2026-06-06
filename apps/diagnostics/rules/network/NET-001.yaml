@@ -1,0 +1,57 @@
+# NET-001 — Network Adapter Down or Disconnected
+# Detects network adapters that are not in an Up/Connected state.
+# Applies to both Windows and Linux.
+
+rule:
+  id: NET-001
+  name: Network Adapter Down or Disconnected
+  version: "1.0"
+  severity: critical
+  platform: both
+  category: network
+  description: >
+    Detects network adapters that are not in an operational state.
+    A down adapter means the host has lost network connectivity
+    which affects all remote management, services, and cluster
+    communication.
+  status: active
+
+collect:
+  - command: Get-NetAdapter | Where-Object {$_.Status -ne 'Up'} | Select-Object Name,Status,LinkSpeed | Format-List
+  - command: ip link show | grep -E "^[0-9]|state"
+
+conditions:
+  match: any
+  patterns:
+    - field: Get-NetAdapter | Where-Object {$_.Status -ne 'Up'} | Select-Object Name,Status,LinkSpeed | Format-List
+      condition: regex
+      value: 'Status\s*:\s*(Disconnected|Not Present|Unknown|Disabled)'
+      severity: critical
+    - field: ip link show | grep -E "^[0-9]|state"
+      condition: contains
+      contains: "DOWN"
+      severity: critical
+
+finding:
+  probable_cause: >
+    One or more network adapters are not in an operational state.
+    This may indicate a physical cable disconnection, switch port
+    failure, NIC hardware failure, or driver issue. In a cluster
+    environment this can cause network partition and quorum loss.
+  confidence: high
+  detail_field: Get-NetAdapter | Where-Object {$_.Status -ne 'Up'} | Select-Object Name,Status,LinkSpeed | Format-List
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-NetAdapter | Format-List Name,Status,LinkSpeed,MacAddress,InterfaceDescription
+      description: "Get detailed adapter status (Windows)"
+    - action: run_command
+      command: ip link show
+      description: "Get detailed adapter status (Linux)"
+    - action: run_command
+      command: Get-EventLog -LogName System -Source *tcpip*,*ndis* -Newest 20 | Format-List TimeGenerated,Source,Message
+      description: "Check network-related event log entries"
+  escalate_to_ticket: true
+  ticket_priority: critical

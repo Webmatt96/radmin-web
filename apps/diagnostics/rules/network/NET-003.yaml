@@ -1,0 +1,78 @@
+# NET-003 — Default Gateway Unreachable
+# Detects when the default gateway cannot be pinged.
+# An unreachable gateway means the host has no path to other
+# networks, effectively isolating it from the rest of the environment.
+
+rule:
+  id: NET-003
+  name: Default Gateway Unreachable
+  version: "1.0"
+  severity: critical
+  platform: both
+  category: network
+  description: >
+    Detects when the default gateway is unreachable. An unreachable
+    gateway isolates the host from all external networks including
+    management networks, cluster interconnects, and storage networks.
+  status: active
+
+collect:
+  - command: >
+      $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' |
+      Sort-Object RouteMetric | Select-Object -First 1).NextHop;
+      $result = Test-Connection -ComputerName $gw -Count 2 -Quiet;
+      Write-Output "Gateway: $gw Reachable: $result"
+  - command: >
+      gw=$(ip route | grep default | awk '{print $3}' | head -1);
+      echo "Gateway: $gw";
+      ping -c 2 -W 2 $gw 2>&1 | tail -3
+
+conditions:
+  match: any
+  patterns:
+    - field: >
+        $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' |
+        Sort-Object RouteMetric | Select-Object -First 1).NextHop;
+        $result = Test-Connection -ComputerName $gw -Count 2 -Quiet;
+        Write-Output "Gateway: $gw Reachable: $result"
+      condition: contains
+      contains: "Reachable: False"
+      severity: critical
+    - field: >
+        gw=$(ip route | grep default | awk '{print $3}' | head -1);
+        echo "Gateway: $gw";
+        ping -c 2 -W 2 $gw 2>&1 | tail -3
+      condition: contains
+      contains: "100% packet loss"
+      severity: critical
+
+finding:
+  probable_cause: >
+    The default gateway is not responding to ping. This indicates
+    a routing failure, gateway hardware issue, or complete network
+    connectivity loss. The host cannot communicate with other networks.
+    In a cluster this may cause split-brain conditions.
+  confidence: high
+  detail_field: >
+    $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' |
+    Sort-Object RouteMetric | Select-Object -First 1).NextHop;
+    $result = Test-Connection -ComputerName $gw -Count 2 -Quiet;
+    Write-Output "Gateway: $gw Reachable: $result"
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-NetRoute | Format-List DestinationPrefix,NextHop,RouteMetric,InterfaceAlias
+      description: "Show routing table (Windows)"
+    - action: run_command
+      command: ip route show
+      description: "Show routing table (Linux)"
+    - action: run_command
+      command: Get-NetAdapter | Format-List Name,Status,LinkSpeed
+      description: "Check adapter status for physical connectivity"
+    - action: run_command
+      command: Get-EventLog -LogName System -Source *tcpip* -Newest 10 | Format-List TimeGenerated,Message
+      description: "Check TCP/IP event log entries"
+  escalate_to_ticket: true
+  ticket_priority: critical

@@ -1,0 +1,69 @@
+# NET-002 — DNS Resolution Failure
+# Detects when a host cannot resolve DNS names.
+# DNS failure causes cascading failures across virtually all
+# network-dependent services and applications.
+
+rule:
+  id: NET-002
+  name: DNS Resolution Failure
+  version: "1.0"
+  severity: critical
+  platform: both
+  category: network
+  description: >
+    Detects DNS resolution failures on managed hosts. DNS failure
+    causes cascading failures across all network services including
+    Active Directory authentication, application connectivity,
+    and cluster communication.
+  status: active
+
+collect:
+  - command: Resolve-DnsName google.com -ErrorAction SilentlyContinue | Select-Object Name,IPAddress | Format-List
+  - command: nslookup google.com 2>&1 | head -10
+
+conditions:
+  match: any
+  patterns:
+    - field: Resolve-DnsName google.com -ErrorAction SilentlyContinue | Select-Object Name,IPAddress | Format-List
+      condition: not_contains
+      value: "IPAddress"
+      severity: critical
+    - field: nslookup google.com 2>&1 | head -10
+      condition: contains
+      contains: "SERVFAIL"
+      severity: critical
+    - field: nslookup google.com 2>&1 | head -10
+      condition: contains
+      contains: "NXDOMAIN"
+      severity: critical
+    - field: nslookup google.com 2>&1 | head -10
+      condition: contains
+      contains: "connection timed out"
+      severity: critical
+
+finding:
+  probable_cause: >
+    DNS resolution is failing on this host. Common causes include
+    DNS server unavailability, incorrect DNS configuration, network
+    connectivity loss, or firewall blocking DNS traffic on port 53.
+    All network-dependent services will be affected.
+  confidence: high
+  detail_field: nslookup google.com 2>&1 | head -10
+
+remediation:
+  autonomous: false
+  recommended_actions:
+    - action: run_command
+      command: Get-DnsClientServerAddress | Format-List InterfaceAlias,ServerAddresses
+      description: "Check configured DNS servers (Windows)"
+    - action: run_command
+      command: cat /etc/resolv.conf
+      description: "Check DNS configuration (Linux)"
+    - action: run_command
+      command: Test-NetConnection -ComputerName 8.8.8.8 -Port 53
+      description: "Test connectivity to Google DNS on port 53 (Windows)"
+    - action: run_command
+      command: nc -zv 8.8.8.8 53 2>&1
+      description: "Test connectivity to Google DNS on port 53 (Linux)"
+  escalate_to_ticket: true
+  ticket_priority: critical
